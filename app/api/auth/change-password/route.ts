@@ -1,53 +1,35 @@
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcrypt"
-import jwt from "jsonwebtoken"
+import { getUserFromRequest } from "@/lib/getUser"
 import { NextResponse } from "next/server"
 
 export async function PUT(req: Request) {
 
+  const user = getUserFromRequest(req)
+
   const { oldPassword, newPassword } = await req.json()
 
-  const authHeader = req.headers.get("authorization")
-
-  if (!authHeader) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  const token = authHeader.split(" ")[1]
-
-  const decoded: any = jwt.verify(
-    token,
-    process.env.JWT_SECRET!
-  )
-
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.id }
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id }
   })
-
-  if (!user) {
-    return NextResponse.json(
-      { error: "User not found" },
-      { status: 404 }
-    )
-  }
 
   const valid = await bcrypt.compare(
     oldPassword,
-    user.password_hash
+    dbUser!.password_hash
   )
 
   if (!valid) {
     return NextResponse.json(
-      { error: "Wrong password" },
+      { error: "Invalid password" },
       { status: 400 }
     )
   }
 
-  const hashed = await bcrypt.hash(newPassword, 10)
+  const hash = await bcrypt.hash(newPassword, 10)
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { password_hash: hashed }
+    data: { password_hash: hash }
   })
 
   return NextResponse.json({

@@ -42,6 +42,7 @@ export async function POST(req: Request) {
       {
         id: tokenRecord.user.id,
         role: tokenRecord.user.role
+        restaurant_id:tokenRecord.user.restaurant_id
       },
       process.env.JWT_SECRET!,
       { expiresIn: "15m" }

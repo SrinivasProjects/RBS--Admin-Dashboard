@@ -6,7 +6,7 @@ import { NextResponse } from "next/server"
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { name, email, password } = body
+    const { name, email, password , restaurantName} = body
 
     const existingUser = await prisma.user.findUnique({
       where: { email }
@@ -20,13 +20,20 @@ export async function POST(req: Request) {
     }
 
     const hash = await bcrypt.hash(password, 10)
+const restaurant = await prisma.restaurant.create({
+      data: {
+        name: restaurantName || `${name}'s Restaurant`
+      }
+    })
 
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password_hash: hash,
-        role: "OWNER"
+        role: "OWNER",
+        restaurant_id: restaurant.id
+
       }
     })
 
