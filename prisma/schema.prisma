@@ -173,3 +173,15 @@ model OtpVerification {
 
   @@map("otp_verifications")
 }
+
+
+
+
+
+
+
+
+
+
+
+
