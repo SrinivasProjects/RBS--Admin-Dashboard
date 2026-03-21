@@ -17,9 +17,10 @@ export async function POST(req: Request) {
       { status: 401 }
     )
   }
+  console.log(user)
 
   const valid = await bcrypt.compare(password, user.password_hash)
-
+console.log("PASSWORD VALID:", valid)
   if (!valid) {
     return NextResponse.json(
       { error: "Invalid credentials" },
