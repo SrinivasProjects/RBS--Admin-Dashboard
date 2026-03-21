@@ -12,56 +12,11 @@ export async function POST(req: Request) {
       where: { email }
     })
 
-<<<<<<< HEAD
-  if (!user) {
-    return NextResponse.json(
-      { error: "Invalid credentials" },
-      { status: 401 }
-    )
-  }
-  console.log(user)
-
-  const valid = await bcrypt.compare(password, user.password_hash)
-console.log("PASSWORD VALID:", valid)
-  if (!valid) {
-    return NextResponse.json(
-      { error: "Invalid credentials" },
-      { status: 401 }
-    )
-  }
-
-  // Access Token
-  const accessToken = jwt.sign(
-    { id: user.id, role: user.role , restaurant_id: user.restaurant_id},
-    process.env.JWT_SECRET!,
-    { expiresIn: "15m" }
-  )
-
-  // Refresh Token (JWT)
-  const refreshToken = jwt.sign(
-    { id: user.id },
-    process.env.JWT_REFRESH_SECRET!,
-    { expiresIn: "7d" }
-  )
-
-  // Store hashed refresh token
-  const tokenHash = crypto
-    .createHash("sha256")
-    .update(refreshToken)
-    .digest("hex")
-
-  await prisma.refreshToken.create({
-    data: {
-      user_id: user.id,
-      token_hash: tokenHash,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-=======
     if (!user) {
       return NextResponse.json(
         { error: "Invalid credentials" },
         { status: 401 }
       )
->>>>>>> f2d70c0e1b8fadaed8d461791bb3ddf22eb7fa48
     }
 
     const valid = await bcrypt.compare(password, user.password_hash)
