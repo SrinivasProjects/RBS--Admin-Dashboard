@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
- 
 }
 
 ///////////////////////////////////////////////////////
@@ -172,3 +171,15 @@ model OtpVerification {
 
   @@map("otp_verifications")
 }
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import bcrypt from "bcrypt"
+import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { Role } from "@prisma/client"
@@ -66,9 +66,9 @@ export async function POST(req: Request) {
       }
     })
 
+    // NOTE: In production, send `otp` via email/SMS — never return it in the response
     return NextResponse.json({
-      message: "User created. Verify OTP.",
-      otp 
+      message: "User created. A verification OTP has been sent to your contact."
     })
 
   } catch (error) {

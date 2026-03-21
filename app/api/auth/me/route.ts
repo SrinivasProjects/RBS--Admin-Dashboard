@@ -1,26 +1,29 @@
 import { prisma } from "@/lib/prisma"
-import jwt from "jsonwebtoken"
 import { NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/getUser"
 
 export async function GET(req: Request) {
+  try {
+    const decoded: any = getUserFromRequest(req)
 
-  // const authHeader = req.headers.get("authorization")
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id }
+    })
 
-  // if (!authHeader) {
-  //   return NextResponse.json(
-  //     { error: "Unauthorized" },
-  //     { status: 401 }
-  //   )
-  // }
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      )
+    }
 
-  // const token = authHeader.split(" ")[1]
+    return NextResponse.json(user)
 
-  const decoded: any = getUserFromRequest(req)
-
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.id }
-  })
-
-  return NextResponse.json(user)
+  } catch (error) {
+    console.error(error)
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    )
+  }
 }
