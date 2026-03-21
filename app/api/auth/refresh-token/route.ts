@@ -14,6 +14,16 @@ export async function POST(req: Request) {
       )
     }
 
+    // Verify JWT signature first — before any DB query
+    try {
+      jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!)
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid refresh token" },
+        { status: 401 }
+      )
+    }
+
     const tokenHash = crypto
       .createHash("sha256")
       .update(refreshToken)
@@ -41,8 +51,8 @@ export async function POST(req: Request) {
     const newAccessToken = jwt.sign(
       {
         id: tokenRecord.user.id,
-        role: tokenRecord.user.role
-        restaurant_id:tokenRecord.user.restaurant_id
+        role: tokenRecord.user.role,
+        restaurant_id: tokenRecord.user.restaurant_id
       },
       process.env.JWT_SECRET!,
       { expiresIn: "15m" }
