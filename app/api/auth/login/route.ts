@@ -1,15 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
-import crypto from "crypto"
 import { NextResponse } from "next/server"
+import { generateAccessToken, generateRefreshToken, hashToken } from "@/lib/auth"
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json()
 
     const user = await prisma.user.findUnique({
-      where: { email }
+      where: { email },
     })
 
     if (!user) {
@@ -28,44 +27,24 @@ export async function POST(req: Request) {
       )
     }
 
-    // Access Token
-    const accessToken = jwt.sign(
-      { id: user.id, role: user.role, restaurant_id: user.restaurant_id },
-      process.env.JWT_SECRET!,
-      { expiresIn: "15m" }
-    )
-
-    // Refresh Token (JWT)
-    const refreshToken = jwt.sign(
-      { id: user.id },
-      process.env.JWT_REFRESH_SECRET!,
-      { expiresIn: "7d" }
-    )
-
-    // Store hashed refresh token
-    const tokenHash = crypto
-      .createHash("sha256")
-      .update(refreshToken)
-      .digest("hex")
+    const accessToken  = generateAccessToken(user)
+    const refreshToken = generateRefreshToken(user.id)
+    const tokenHash    = hashToken(refreshToken)
 
     await prisma.refreshToken.create({
       data: {
-        user_id: user.id,
+        user_id:    user.id,
         token_hash: tokenHash,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      }
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
     })
 
-    // Update last login timestamp
     await prisma.user.update({
       where: { id: user.id },
-      data: { last_login_at: new Date() }
+      data:  { last_login_at: new Date() },
     })
 
-    return NextResponse.json({
-      accessToken,
-      refreshToken
-    })
+    return NextResponse.json({ accessToken, refreshToken })
 
   } catch (error) {
     console.error(error)

@@ -1,14 +1,16 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-///////////////////////////////////////////////////////
-//////////////////// ENUMS ////////////////////////////
-///////////////////////////////////////////////////////
+// =====================================================
+// ENUMS
+// =====================================================
 
 enum Role {
   SUPER_ADMIN
@@ -26,160 +28,312 @@ enum OtpPurpose {
   CHANGE_PASSWORD
 }
 
-///////////////////////////////////////////////////////
-//////////////// RESTAURANTS //////////////////////////
-///////////////////////////////////////////////////////
+enum OrderStatus {
+  RUNNING
+  HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  ONLINE
+}
+
+enum OnlinePlatform {
+  SWIGGY
+  ZOMATO
+  OTHER
+}
+
+enum KotStatus {
+  PENDING
+  IN_PROGRESS
+  READY
+  SERVED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  ONLINE
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  REFUNDED
+}
+
+// =====================================================
+// RESTAURANTS
+// =====================================================
 
 model Restaurant {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(150)
-  phone       String?  @db.VarChar(15)
-  email       String?  @db.VarChar(150)
-  address     String?  @db.VarChar(255)
+  id         Int     @id @default(autoincrement())
+  name       String  @db.VarChar(150)
+  phone      String? @db.VarChar(15)
+  email      String? @db.VarChar(150)
+  address    String? @db.VarChar(255)
+  is_active  Boolean @default(true)
 
-  is_active   Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz()
+  updated_at DateTime @updatedAt @db.Timestamptz()
 
-  created_at  DateTime @default(now()) @db.Timestamptz()
-  updated_at  DateTime @updatedAt @db.Timestamptz()
-
-  /////////////////////////////////////////////////////
-  // RELATIONS
-  /////////////////////////////////////////////////////
-
-  users User[]
-
-  /////////////////////////////////////////////////////
-  // INDEXES
-  /////////////////////////////////////////////////////
+  users    User[]
+  devices  Device[]
+  orders   Order[]
+  kots     Kot[]
+  payments Payment[]
 
   @@index([is_active])
   @@map("restaurants")
 }
 
-///////////////////////////////////////////////////////
-//////////////////// USERS ////////////////////////////
-///////////////////////////////////////////////////////
+// =====================================================
+// USERS
+// =====================================================
 
 model User {
-  id            Int      @id @default(autoincrement())
-
+  id            Int     @id @default(autoincrement())
   restaurant_id Int?
-
-  name          String   @db.VarChar(100)
-  email         String?  @unique @db.VarChar(150)
-  phone         String?  @unique @db.VarChar(15)
-
-  password_hash String   @db.Char(60)
-
-  role          Role     @default(WAITER)
-
-  avatar        String?  @db.VarChar(255)
-
-  is_active     Boolean  @default(true)
+  name          String  @db.VarChar(100)
+  email         String? @unique @db.VarChar(150)
+  phone         String? @unique @db.VarChar(15)
+  password_hash String  @db.Char(60)
+  role          Role    @default(WAITER)
+  avatar        String? @db.VarChar(255)
+  is_active     Boolean @default(true)
 
   last_login_at DateTime? @db.Timestamptz()
+  created_at    DateTime  @default(now()) @db.Timestamptz()
+  updated_at    DateTime  @updatedAt @db.Timestamptz()
 
-  created_at    DateTime @default(now()) @db.Timestamptz()
-  updated_at    DateTime @updatedAt @db.Timestamptz()
-
-  /////////////////////////////////////////////////////
-  // RELATIONS
-  /////////////////////////////////////////////////////
-
-  restaurant Restaurant? @relation(fields: [restaurant_id], references: [id])
-
-  refresh_tokens RefreshToken[]
+  restaurant        Restaurant?       @relation(fields: [restaurant_id], references: [id])
+  refresh_tokens    RefreshToken[]
   otp_verifications OtpVerification[]
-
-  /////////////////////////////////////////////////////
-  // INDEXES
-  /////////////////////////////////////////////////////
 
   @@index([restaurant_id])
   @@index([role])
   @@index([is_active])
-
   @@map("users")
 }
 
-///////////////////////////////////////////////////////
-//////////////// REFRESH TOKENS ///////////////////////
-///////////////////////////////////////////////////////
+// =====================================================
+// REFRESH TOKENS
+// =====================================================
 
 model RefreshToken {
   id          Int      @id @default(autoincrement())
-
   user_id     Int
-
   token_hash  String   @unique @db.Char(64)
-
   device_info String?  @db.VarChar(255)
   ip_address  String?  @db.VarChar(45)
-
   expires_at  DateTime @db.Timestamptz()
   created_at  DateTime @default(now()) @db.Timestamptz()
 
-  /////////////////////////////////////////////////////
-  // RELATIONS
-  /////////////////////////////////////////////////////
-
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  /////////////////////////////////////////////////////
-  // INDEXES
-  /////////////////////////////////////////////////////
-
   @@index([user_id, expires_at])
-
   @@map("refresh_tokens")
 }
 
-///////////////////////////////////////////////////////
-//////////////// OTP VERIFICATIONS ////////////////////
-///////////////////////////////////////////////////////
+// =====================================================
+// OTP VERIFICATIONS
+// =====================================================
 
 model OtpVerification {
   id         Int        @id @default(autoincrement())
-
   user_id    Int?
-
   contact    String     @db.VarChar(150)
-
   otp_hash   String     @db.Char(64)
-
   purpose    OtpPurpose
-
   attempts   Int        @default(0) @db.SmallInt
-
   is_used    Boolean    @default(false)
-
   expires_at DateTime   @db.Timestamptz()
   created_at DateTime   @default(now()) @db.Timestamptz()
 
-  /////////////////////////////////////////////////////
-  // RELATIONS
-  /////////////////////////////////////////////////////
-
   user User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  /////////////////////////////////////////////////////
-  // INDEXES
-  /////////////////////////////////////////////////////
 
   @@index([contact, purpose])
   @@index([expires_at])
-
   @@map("otp_verifications")
 }
 
+// =====================================================
+// DEVICES  (EXE installations — one per billing counter)
+// =====================================================
 
+model Device {
+  id             Int       @id @default(autoincrement())
+  restaurant_id  Int
+  device_name    String    @db.VarChar(100)
+  device_key     String    @unique @db.Char(64) // SHA-256 hashed secret
+  is_active      Boolean   @default(true)
+  last_synced_at DateTime? @db.Timestamptz()
 
+  created_at DateTime @default(now()) @db.Timestamptz()
+  updated_at DateTime @updatedAt @db.Timestamptz()
 
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
 
+  @@index([restaurant_id])
+  @@map("devices")
+}
 
+// =====================================================
+// ORDERS
+// =====================================================
 
+model Order {
+  id          Int    @id @default(autoincrement())
+  external_id String @unique @db.Uuid // EXE-generated UUID — idempotency key
 
+  restaurant_id Int
+  order_number  String      @db.VarChar(20)
+  order_type    OrderType
+  status        OrderStatus @default(RUNNING)
 
+  // DINE_IN only
+  table_number String? @db.VarChar(10)
+  covers       Int?    @db.SmallInt // guest count
 
+  // TAKEAWAY / ONLINE
+  customer_name  String? @db.VarChar(100)
+  customer_phone String? @db.VarChar(15)
 
+  // ONLINE only
+  platform          OnlinePlatform?
+  platform_order_id String?         @db.VarChar(50) // Swiggy / Zomato ref
 
+  // Financials — pushed by EXE, never recalculated server-side
+  subtotal        Decimal @db.Decimal(10, 2)
+  discount_amount Decimal @default(0) @db.Decimal(10, 2)
+  tax_amount      Decimal @default(0) @db.Decimal(10, 2)
+  total_amount    Decimal @db.Decimal(10, 2)
+
+  notes String? @db.VarChar(255)
+
+  ordered_at   DateTime  @db.Timestamptz() // EXE timestamp
+  completed_at DateTime? @db.Timestamptz()
+  created_at   DateTime  @default(now()) @db.Timestamptz() // server sync time
+  updated_at   DateTime  @updatedAt @db.Timestamptz()
+
+  restaurant Restaurant  @relation(fields: [restaurant_id], references: [id])
+  items      OrderItem[]
+  kots       Kot[]
+  payments   Payment[]
+
+  @@unique([restaurant_id, order_number])
+  @@index([restaurant_id, status])
+  @@index([restaurant_id, ordered_at])
+  @@index([restaurant_id, order_type])
+  @@map("orders")
+}
+
+// =====================================================
+// ORDER ITEMS
+// =====================================================
+
+model OrderItem {
+  id       Int @id @default(autoincrement())
+  order_id Int
+
+  // Denormalized from EXE — preserves price at time of order
+  item_name       String  @db.VarChar(150)
+  item_code       String? @db.VarChar(50)  // EXE menu reference
+  category        String? @db.VarChar(100)
+  quantity        Decimal @db.Decimal(8, 3) // supports fractional (e.g. 0.5 kg)
+  unit_price      Decimal @db.Decimal(10, 2)
+  discount_amount Decimal @default(0) @db.Decimal(10, 2)
+  tax_rate        Decimal @default(0) @db.Decimal(5, 2) // e.g. 5.00 = 5 %
+  tax_amount      Decimal @default(0) @db.Decimal(10, 2)
+  total_price     Decimal @db.Decimal(10, 2) // (unit_price × qty) − discount + tax
+
+  notes String? @db.VarChar(255)
+
+  order     Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  kot_items KotItem[]
+
+  @@index([order_id])
+  @@map("order_items")
+}
+
+// =====================================================
+// KOTs  (Kitchen Order Tickets)
+// =====================================================
+
+model Kot {
+  id          Int    @id @default(autoincrement())
+  external_id String @unique @db.Uuid
+
+  order_id      Int
+  restaurant_id Int
+  kot_number    Int       @db.SmallInt // 1, 2, 3 … per order
+  status        KotStatus @default(PENDING)
+  notes         String?   @db.VarChar(255)
+  printed_at    DateTime? @db.Timestamptz()
+
+  created_at DateTime @db.Timestamptz() // EXE timestamp
+  updated_at DateTime @updatedAt @db.Timestamptz()
+
+  order      Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
+  items      KotItem[]
+
+  @@index([order_id])
+  @@index([restaurant_id, status])
+  @@index([restaurant_id, created_at])
+  @@map("kots")
+}
+
+// =====================================================
+// KOT ITEMS
+// =====================================================
+
+model KotItem {
+  id            Int  @id @default(autoincrement())
+  kot_id        Int
+  order_item_id Int? // nullable link — set null if parent OrderItem is replaced
+
+  item_name String  @db.VarChar(150) // denormalized for kitchen display
+  quantity  Decimal @db.Decimal(8, 3)
+  notes     String? @db.VarChar(255)
+
+  kot        Kot        @relation(fields: [kot_id], references: [id], onDelete: Cascade)
+  order_item OrderItem? @relation(fields: [order_item_id], references: [id], onDelete: SetNull)
+
+  @@index([kot_id])
+  @@map("kot_items")
+}
+
+// =====================================================
+// PAYMENTS
+// =====================================================
+
+model Payment {
+  id          Int    @id @default(autoincrement())
+  external_id String @unique @db.Uuid
+
+  order_id      Int
+  restaurant_id Int
+
+  amount          Decimal       @db.Decimal(10, 2)
+  method          PaymentMethod
+  status          PaymentStatus @default(PAID)
+  transaction_ref String?       @db.VarChar(100) // card / UPI / online ref
+
+  paid_at    DateTime @db.Timestamptz() // EXE timestamp
+  created_at DateTime @default(now()) @db.Timestamptz()
+
+  order      Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
+
+  @@index([order_id])
+  @@index([restaurant_id, status])
+  @@index([restaurant_id, paid_at])
+  @@map("payments")
+}

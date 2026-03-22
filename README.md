@@ -1,6 +1,6 @@
 # RBS Admin Dashboard
 
-A full-stack **Restaurant Business System** admin dashboard built with **Next.js 16 (App Router)**, **TypeScript**, **Prisma 7**, and **PostgreSQL (Neon)**.
+A full-stack **Restaurant Business System** admin dashboard built with **Next.js 16 (App Router)**, **TypeScript**, **Prisma 6**, and **PostgreSQL (Neon)**.
 
 ---
 
@@ -8,12 +8,13 @@ A full-stack **Restaurant Business System** admin dashboard built with **Next.js
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 16.1.6 (App Router) |
+| Framework | Next.js 16.2.1 (App Router) |
 | Language | TypeScript 5 |
 | Database | PostgreSQL via Neon |
-| ORM | Prisma 7 + PrismaPg adapter |
-| Auth | JWT (access + refresh tokens) |
+| ORM | Prisma 6.12.0 + PrismaPg adapter |
+| Auth | JWT (access 15 min + refresh 7 days) |
 | Password hashing | bcryptjs (10 rounds) |
+| Validation | Zod v4 |
 | Styling | Tailwind CSS 4 |
 | State | Zustand + TanStack React Query |
 
@@ -65,6 +66,37 @@ SUPER_ADMIN | OWNER | MANAGER | CASHIER | WAITER | KITCHEN | INVENTORY
 ```
 REGISTER | LOGIN | CHANGE_PASSWORD
 ```
+
+### Order Status
+```
+RUNNING | HOLD | COMPLETED | CANCELLED
+```
+
+### Order Types
+```
+DINE_IN | TAKEAWAY | ONLINE
+```
+
+### KOT Status
+```
+PENDING | IN_PROGRESS | READY | SERVED | CANCELLED
+```
+
+### Payment Methods & Status
+```
+Methods: CASH | CARD | UPI | ONLINE
+Status:  PAID | PENDING | REFUNDED
+```
+
+---
+
+## Architecture: Offline-First EXE Sync
+
+The billing EXE (desktop app) runs offline-capable. It generates UUID `external_id` values for every Order, KOT, and Payment locally, then pushes batches to `POST /api/sync` when online.
+
+- Server does **UPSERT on `external_id`** — safe to retry, guarantees idempotency
+- Each order is processed in its own **Prisma transaction** — one failure doesn't block others
+- Device authentication uses `X-Device-Key` header (SHA-256 hashed secret, stored in `devices` table)
 
 ---
 
@@ -392,6 +424,464 @@ Authorization: Bearer <accessToken>
 
 ---
 
+### Order Routes
+
+All order routes require: `Authorization: Bearer <accessToken>`
+
+Roles: `SUPER_ADMIN` sees all restaurants. `OWNER`, `MANAGER`, `CASHIER` see only their own.
+
+---
+
+#### 9. Running Orders
+
+**`GET /api/orders/running`**
+
+Returns all active (`RUNNING` + `HOLD`) orders with items, KOT count, paid amount, due amount, and elapsed time.
+
+**Allowed roles:** `SUPER_ADMIN`, `OWNER`, `MANAGER`, `CASHIER`
+
+**No query parameters.**
+
+**Success Response — `200`**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "order_number": "ORD-001",
+      "order_type": "DINE_IN",
+      "status": "RUNNING",
+      "table_number": "T5",
+      "covers": 3,
+      "customer_name": null,
+      "customer_phone": null,
+      "platform": null,
+      "subtotal": 450.00,
+      "discount_amount": 0.00,
+      "tax_amount": 22.50,
+      "total_amount": 472.50,
+      "paid_amount": 0.00,
+      "due_amount": 472.50,
+      "kot_count": 1,
+      "items": [
+        {
+          "item_name": "Butter Chicken",
+          "category": "Main Course",
+          "quantity": 2,
+          "unit_price": 180.00,
+          "total_price": 360.00,
+          "notes": null
+        }
+      ],
+      "ordered_at": "2026-03-21T10:30:00.000Z",
+      "elapsed_minutes": 14
+    }
+  ],
+  "total": 1
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `401` | `{ "error": "Unauthorized" }` | Missing / invalid token or insufficient role |
+
+---
+
+#### 10. All Orders (Paginated)
+
+**`GET /api/orders`**
+
+Returns paginated order history with optional filters.
+
+**Allowed roles:** `SUPER_ADMIN`, `OWNER`, `MANAGER`, `CASHIER`
+
+**Query Parameters**
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `page` | number | `1` | Page number |
+| `limit` | number | `20` | Max `100` |
+| `status` | string | — | One of: `RUNNING`, `HOLD`, `COMPLETED`, `CANCELLED` |
+| `order_type` | string | — | One of: `DINE_IN`, `TAKEAWAY`, `ONLINE` |
+| `from` | ISO date | today 00:00 | Filter by `ordered_at >= from` |
+| `to` | ISO date | today 23:59 | Filter by `ordered_at <= to` |
+| `search` | string | — | Searches `order_number`, `customer_name`, `customer_phone`, `table_number` |
+
+**Example:** `GET /api/orders?status=COMPLETED&from=2026-03-01&to=2026-03-21&page=1&limit=20`
+
+**Success Response — `200`**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "order_number": "ORD-001",
+      "order_type": "DINE_IN",
+      "status": "COMPLETED",
+      "table_number": "T5",
+      "covers": 3,
+      "customer_name": null,
+      "customer_phone": null,
+      "platform": null,
+      "subtotal": 450.00,
+      "discount_amount": 0.00,
+      "tax_amount": 22.50,
+      "total_amount": 472.50,
+      "ordered_at": "2026-03-21T10:30:00.000Z",
+      "completed_at": "2026-03-21T11:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 42,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 3,
+    "total_orders": 42,
+    "total_revenue": 18750.00
+  }
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `400` | `{ "error": "..." }` | Invalid status or order_type value |
+| `401` | `{ "error": "Unauthorized" }` | Missing / invalid token |
+
+---
+
+### KOT Route
+
+---
+
+#### 11. Kitchen Order Tickets (KOT)
+
+**`GET /api/kot`**
+
+Returns paginated KOTs with their items. Kitchen staff can use this to see what to prepare.
+
+**Allowed roles:** `SUPER_ADMIN`, `OWNER`, `MANAGER`, `CASHIER`, `KITCHEN`
+
+**Query Parameters**
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `page` | number | `1` | |
+| `limit` | number | `20` | Max `100` |
+| `status` | string | — | One of: `PENDING`, `IN_PROGRESS`, `READY`, `SERVED`, `CANCELLED` |
+| `order_id` | number | — | Filter by a specific order |
+| `from` | ISO date | today 00:00 | Filter by `created_at >= from` |
+| `to` | ISO date | today 23:59 | Filter by `created_at <= to` |
+
+**Success Response — `200`**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "external_id": "550e8400-e29b-41d4-a716-446655440000",
+      "order_id": 1,
+      "order_number": "ORD-001",
+      "table_number": "T5",
+      "kot_number": 1,
+      "status": "PENDING",
+      "notes": null,
+      "printed_at": null,
+      "created_at": "2026-03-21T10:31:00.000Z",
+      "items": [
+        {
+          "item_name": "Butter Chicken",
+          "quantity": 2,
+          "notes": null
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 5,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 1
+  }
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `400` | `{ "error": "..." }` | Invalid status value |
+| `401` | `{ "error": "Unauthorized" }` | Missing / invalid token |
+
+---
+
+### Payment Routes
+
+---
+
+#### 12. Due Payments
+
+**`GET /api/payments/due`**
+
+Returns non-cancelled orders that have an outstanding balance (due_amount > 0), with their payment history.
+
+**Allowed roles:** `SUPER_ADMIN`, `OWNER`, `MANAGER`, `CASHIER`
+
+**Query Parameters**
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `page` | number | `1` | |
+| `limit` | number | `20` | Max `100` |
+| `from` | ISO date | today 00:00 | Filter by `ordered_at >= from` |
+| `to` | ISO date | tomorrow 00:00 | Filter by `ordered_at < to` |
+
+**Success Response — `200`**
+```json
+{
+  "data": [
+    {
+      "id": 2,
+      "order_number": "ORD-002",
+      "order_type": "DINE_IN",
+      "status": "COMPLETED",
+      "table_number": "T3",
+      "customer_name": null,
+      "customer_phone": null,
+      "total_amount": 680.00,
+      "paid_amount": 300.00,
+      "due_amount": 380.00,
+      "ordered_at": "2026-03-21T09:00:00.000Z",
+      "payments": [
+        {
+          "method": "CASH",
+          "amount": 300.00,
+          "status": "PAID",
+          "transaction_ref": null,
+          "paid_at": "2026-03-21T09:45:00.000Z"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 3,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 1,
+    "total_due": 1180.00
+  }
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `401` | `{ "error": "Unauthorized" }` | Missing / invalid token |
+
+---
+
+### Report Routes
+
+---
+
+#### 13. Profit & Loss Report
+
+**`GET /api/reports/profit-loss`**
+
+Aggregates completed order revenue, discounts, taxes, and payment collections for a date range. Supports daily / weekly / monthly breakdown.
+
+**Allowed roles:** `SUPER_ADMIN`, `OWNER`, `MANAGER`
+
+**Query Parameters**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `from` | ISO date | **Yes** | Start date (inclusive) |
+| `to` | ISO date | **Yes** | End date (inclusive, end of day) |
+| `group_by` | string | No | `day` (default), `week`, or `month` |
+
+**Example:** `GET /api/reports/profit-loss?from=2026-03-01&to=2026-03-21&group_by=day`
+
+**Success Response — `200`**
+```json
+{
+  "summary": {
+    "total_orders": 85,
+    "completed_orders": 72,
+    "cancelled_orders": 5,
+    "gross_revenue": 42500.00,
+    "total_discount": 1200.00,
+    "tax_collected": 2125.00,
+    "net_revenue": 41300.00,
+    "total_due": 850.00,
+    "collected": {
+      "CASH": 28000.00,
+      "UPI": 12000.00,
+      "CARD": 1650.00
+    }
+  },
+  "by_type": {
+    "DINE_IN":  { "orders": 45, "revenue": 28000.00 },
+    "TAKEAWAY": { "orders": 20, "revenue": 10500.00 },
+    "ONLINE":   { "orders": 7,  "revenue": 4000.00 }
+  },
+  "breakdown": [
+    {
+      "period": "2026-03-01T00:00:00.000Z",
+      "orders": 5,
+      "gross_revenue": 2800.00,
+      "discount": 50.00,
+      "tax": 140.00,
+      "net_revenue": 2750.00
+    }
+  ]
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `400` | `{ "error": "from and to query params are required" }` | Missing date range |
+| `400` | `{ "error": "group_by must be day, week, or month" }` | Invalid group_by |
+| `401` | `{ "error": "Unauthorized" }` | Missing / invalid token or insufficient role |
+
+---
+
+### Sync Route (EXE → Server)
+
+---
+
+#### 14. Sync Offline Data
+
+**`POST /api/sync`**
+
+Receives a batch of orders (with items, KOTs, and payments) from the offline EXE billing app. Uses UPSERT on `external_id` for idempotency — safe to retry.
+
+**Authentication:** Device key header (not JWT)
+```
+X-Device-Key: <raw-device-secret>
+```
+
+The raw key is SHA-256 hashed and matched against the `devices` table. The device must be active.
+
+**Request Body**
+```json
+{
+  "orders": [
+    {
+      "external_id": "550e8400-e29b-41d4-a716-446655440000",
+      "order_number": "ORD-001",
+      "order_type": "DINE_IN",
+      "status": "COMPLETED",
+      "table_number": "T5",
+      "covers": 3,
+      "customer_name": null,
+      "customer_phone": null,
+      "platform": null,
+      "platform_order_id": null,
+      "subtotal": "450.00",
+      "discount_amount": "0.00",
+      "tax_amount": "22.50",
+      "total_amount": "472.50",
+      "notes": null,
+      "ordered_at": "2026-03-21T10:30:00.000Z",
+      "completed_at": "2026-03-21T11:00:00.000Z",
+      "items": [
+        {
+          "item_name": "Butter Chicken",
+          "item_code": "MC-001",
+          "category": "Main Course",
+          "quantity": "2.000",
+          "unit_price": "180.00",
+          "discount_amount": "0.00",
+          "tax_rate": "5.00",
+          "tax_amount": "18.00",
+          "total_price": "378.00",
+          "notes": null
+        }
+      ],
+      "kots": [
+        {
+          "external_id": "660e8400-e29b-41d4-a716-446655440001",
+          "kot_number": 1,
+          "status": "SERVED",
+          "notes": null,
+          "printed_at": "2026-03-21T10:31:00.000Z",
+          "created_at": "2026-03-21T10:30:30.000Z",
+          "items": [
+            {
+              "item_name": "Butter Chicken",
+              "quantity": "2.000",
+              "notes": null
+            }
+          ]
+        }
+      ],
+      "payments": [
+        {
+          "external_id": "770e8400-e29b-41d4-a716-446655440002",
+          "amount": "472.50",
+          "method": "CASH",
+          "status": "PAID",
+          "transaction_ref": null,
+          "paid_at": "2026-03-21T11:00:00.000Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Field Constraints**
+| Field | Type | Notes |
+|---|---|---|
+| `orders` | array | Max **500** orders per batch |
+| `external_id` | UUID string | Generated by EXE — used as idempotency key |
+| `order_type` | string | `DINE_IN`, `TAKEAWAY`, or `ONLINE` |
+| `status` | string | `RUNNING`, `HOLD`, `COMPLETED`, or `CANCELLED` |
+| `table_number` | string \| null | Required when `order_type = DINE_IN` |
+| `platform` | string \| null | `SWIGGY`, `ZOMATO`, or `OTHER` — only when `order_type = ONLINE` |
+| `subtotal`, `discount_amount`, `tax_amount`, `total_amount` | numeric string | Decimal with 2 places |
+| `quantity` | numeric string | Decimal with up to 3 places (supports fractional e.g. `"0.500"`) |
+| `payment.method` | string | `CASH`, `CARD`, `UPI`, or `ONLINE` |
+| `payment.status` | string | `PAID`, `PENDING`, or `REFUNDED` |
+
+**Success Response — `200`**
+```json
+{
+  "synced": {
+    "orders": 1,
+    "kots": 1,
+    "payments": 1
+  },
+  "errors": [],
+  "server_time": "2026-03-21T11:05:00.000Z"
+}
+```
+
+**Partial Success Response — `200`** _(some orders failed)_
+```json
+{
+  "synced": {
+    "orders": 4,
+    "kots": 6,
+    "payments": 4
+  },
+  "errors": [
+    {
+      "external_id": "550e8400-e29b-41d4-a716-446655440099",
+      "error": "Unique constraint failed on the fields: (`restaurant_id`,`order_number`)"
+    }
+  ],
+  "server_time": "2026-03-21T11:05:00.000Z"
+}
+```
+
+**Error Responses**
+| Status | Body | Cause |
+|---|---|---|
+| `401` | `{ "error": "Unauthorized" }` | Missing, invalid, or inactive device key |
+| `422` | `{ "error": "Invalid payload", "details": {...} }` | Zod validation failed |
+| `500` | `{ "error": "Internal server error" }` | |
+
+---
+
 ## Typical Testing Flow
 
 Use any HTTP client (Postman, Insomnia, `curl`, Thunder Client, etc.).
@@ -402,9 +892,15 @@ Step 2  POST /api/auth/verify-otp     → verify registration OTP (get OTP from 
 Step 3  POST /api/auth/login          → get accessToken + refreshToken
 Step 4  GET  /api/auth/me             → verify token works (use accessToken as Bearer)
 Step 5  GET  /api/test-data           → test role-based data access
-Step 6  PUT  /api/auth/change-password → change password (use accessToken as Bearer)
-Step 7  POST /api/auth/refresh-token  → get new accessToken using refreshToken
-Step 8  POST /api/auth/logout         → invalidate refreshToken
+Step 6  POST /api/sync                → push EXE data (use X-Device-Key header)
+Step 7  GET  /api/orders/running      → view active orders
+Step 8  GET  /api/orders              → paginated order history
+Step 9  GET  /api/kot                 → KOT list for kitchen
+Step 10 GET  /api/payments/due        → orders with outstanding balance
+Step 11 GET  /api/reports/profit-loss?from=2026-03-01&to=2026-03-21 → P&L report
+Step 12 PUT  /api/auth/change-password → change password (use accessToken as Bearer)
+Step 13 POST /api/auth/refresh-token  → get new accessToken using refreshToken
+Step 14 POST /api/auth/logout         → invalidate refreshToken
 ```
 
 > **Dev note:** Since no email/SMS provider is wired up yet, the generated OTP is visible in the terminal where `npm run dev` is running (it appears in Prisma query logs). Use that value in Step 2.

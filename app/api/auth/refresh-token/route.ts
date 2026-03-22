@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma"
-import jwt from "jsonwebtoken"
-import crypto from "crypto"
 import { NextResponse } from "next/server"
+import { verifyRefreshToken, generateAccessToken, hashToken } from "@/lib/auth"
 
 export async function POST(req: Request) {
   try {
@@ -14,9 +13,9 @@ export async function POST(req: Request) {
       )
     }
 
-    // Verify JWT signature first — before any DB query
+    // Verify JWT signature before any DB query
     try {
-      jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!)
+      verifyRefreshToken(refreshToken)
     } catch {
       return NextResponse.json(
         { error: "Invalid refresh token" },
@@ -24,14 +23,10 @@ export async function POST(req: Request) {
       )
     }
 
-    const tokenHash = crypto
-      .createHash("sha256")
-      .update(refreshToken)
-      .digest("hex")
-
+    const tokenHash   = hashToken(refreshToken)
     const tokenRecord = await prisma.refreshToken.findUnique({
-      where: { token_hash: tokenHash },
-      include: { user: true }
+      where:   { token_hash: tokenHash },
+      include: { user: true },
     })
 
     if (!tokenRecord) {
@@ -48,23 +43,12 @@ export async function POST(req: Request) {
       )
     }
 
-    const newAccessToken = jwt.sign(
-      {
-        id: tokenRecord.user.id,
-        role: tokenRecord.user.role,
-        restaurant_id: tokenRecord.user.restaurant_id
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: "15m" }
-    )
+    const newAccessToken = generateAccessToken(tokenRecord.user)
 
-    return NextResponse.json({
-      accessToken: newAccessToken
-    })
+    return NextResponse.json({ accessToken: newAccessToken })
 
   } catch (error) {
     console.error(error)
-
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
