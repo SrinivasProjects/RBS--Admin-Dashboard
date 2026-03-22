@@ -2,16 +2,20 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { NextResponse } from "next/server"
-
+import { Role } from "@prisma/client"
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { name, email, password , restaurantName} = body
+    const { name, email, password , restaurantName, role } = body
 
     const existingUser = await prisma.user.findUnique({
       where: { email }
     })
+        let userRole: Role = Role.OWNER
 
+       if (role === Role.SUPER_ADMIN) {
+          userRole = Role.SUPER_ADMIN
+          }
     if (existingUser) {
       return NextResponse.json(
         { error: "User already exists with this email" },
@@ -20,19 +24,26 @@ export async function POST(req: Request) {
     }
 
     const hash = await bcrypt.hash(password, 10)
-const restaurant = await prisma.restaurant.create({
-      data: {
-        name: restaurantName || `${name}'s Restaurant`
-      }
-    })
+
+        let restaurantId = null
+
+     if (userRole !== Role.SUPER_ADMIN) {
+      const restaurant = await prisma.restaurant.create({
+        data: {
+          name: restaurantName || `${name}'s Restaurant`
+        }
+      })
+
+      restaurantId = restaurant.id
+    }
 
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password_hash: hash,
-        role: "OWNER",
-        restaurant_id: restaurant.id
+        role: userRole ,
+        restaurant_id: restaurantId
 
       }
     })
