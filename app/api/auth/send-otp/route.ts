@@ -12,7 +12,7 @@ const { contact, purpose } = await req.json()
   where: { contact },
   orderBy: { created_at: "desc" }
 })
-
+// If last OTP was created less than 60 sec ago thn block
 if (lastOtp && Date.now() - new Date(lastOtp.created_at).getTime() < 60000) {
   return NextResponse.json(
     { error: "Wait before requesting another OTP" },
@@ -42,7 +42,7 @@ if (lastOtp && Date.now() - new Date(lastOtp.created_at).getTime() < 60000) {
       }
     })
 
-    // 🔥 SEND EMAIL HERE
+    //  SEND EMAIL HERE
     await sendEmail(contact, otp)
 console.log("ENV CHECK:", process.env.DATABASE_URL)
     return NextResponse.json({ success: true })

@@ -2,7 +2,7 @@ import nodemailer from "nodemailer"
 
 export const sendEmail = async (to: string, otp: string) => {
   const transporter = nodemailer.createTransport({
-    service: "gmail",   // ✅ Gmail shortcut
+    service: "gmail",   // Gmail shortcut
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,

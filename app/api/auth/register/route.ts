@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { Role } from "@prisma/client"
+import { sendEmail } from "@/lib/sendEmail"
+
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -23,53 +25,61 @@ export async function POST(req: Request) {
       )
     }
 
-    const hash = await bcrypt.hash(password, 10)
+    // const hash = await bcrypt.hash(password, 10)
 
-        let restaurantId = null
+    //     let restaurantId = null
 
-     if (userRole !== Role.SUPER_ADMIN) {
-      const restaurant = await prisma.restaurant.create({
-        data: {
-          name: restaurantName || `${name}'s Restaurant`
-        }
-      })
+    //  if (userRole !== Role.SUPER_ADMIN) {
+    //   const restaurant = await prisma.restaurant.create({
+    //     data: {
+    //       name: restaurantName || `${name}'s Restaurant`
+    //     }
+    //   })
 
-      restaurantId = restaurant.id
-    }
+    //   restaurantId = restaurant.id
+    // }
 
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password_hash: hash,
-        role: userRole ,
-        restaurant_id: restaurantId
+    // const user = await prisma.user.create({
+    //   data: {
+    //     name,
+    //     email,
+    //     password_hash: hash,
+    //     role: userRole ,
+    //     restaurant_id: restaurantId
 
-      }
-    })
+    //   }
+    // })
 
     // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString()
 
-    const otpHash = crypto
-      .createHash("sha256")
-      .update(otp)
-      .digest("hex")
+const otp = Math.floor(100000 + Math.random() * 900000).toString()
 
-    await prisma.otpVerification.create({
-      data: {
-        user_id: user.id,
-        contact: email,
-        otp_hash: otpHash,
-        purpose: "REGISTER",
-        expires_at: new Date(Date.now() + 5 * 60 * 1000)
-      }
-    })
+const otpHash = crypto
+  .createHash("sha256")
+  .update(otp)
+  .digest("hex")
 
-    // NOTE: In production, send `otp` via email/SMS — never return it in the response
-    return NextResponse.json({
-      message: "User created. A verification OTP has been sent to your contact."
-    })
+await prisma.otpVerification.create({
+  data: {
+    contact: email,
+    otp_hash: otpHash,
+    purpose: "REGISTER",
+    expires_at: new Date(Date.now() + 5 * 60 * 1000),
+
+    
+    temp_name: name,
+    temp_password: password,
+    temp_restaurant: restaurantName,
+    temp_role: role
+  }
+})
+
+// SEND EMAIL 
+await sendEmail(email, otp)
+
+return NextResponse.json({
+  message: "OTP sent to email. Please verify."
+})
 
   } catch (error) {
     console.error(error)

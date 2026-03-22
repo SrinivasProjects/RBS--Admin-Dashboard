@@ -918,3 +918,32 @@ npx prisma generate        # Regenerate Prisma client after schema changes
 npx prisma migrate deploy  # Apply pending migrations to the database
 npx prisma studio          # Open Prisma GUI to browse data
 ```
+
+
+
+
+Authentication Flow (Updated)
+
+The system uses a secure OTP-based registration flow combined with JWT authentication.
+
+Registration Flow (Updated)
+Register → Generate OTP → Store temp data → Verify OTP → Create User
+User is NOT created immediately
+Temporary data is stored in otp_verifications table
+User is created only after successful OTP verification
+
+OTP System Details
+OTP is a 6-digit code
+Stored as SHA-256 hash
+Valid for 5 minutes
+Maximum 5 attempts allowed
+OTP is marked as used after successful verification
+
+Login & Token System
+Login returns:
+Access Token (15 min)
+Refresh Token (7 days)
+Access token is used for all API calls:
+Authorization: Bearer <accessToken>
+Refresh token is used to generate new access tokens
+
