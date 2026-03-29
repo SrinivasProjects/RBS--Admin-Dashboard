@@ -73,12 +73,12 @@ enum PaymentStatus {
 // =====================================================
 
 model Restaurant {
-  id         Int     @id @default(autoincrement())
-  name       String  @db.VarChar(150)
-  phone      String? @db.VarChar(15)
-  email      String? @db.VarChar(150)
-  address    String? @db.VarChar(255)
-  is_active  Boolean @default(true)
+  id        Int     @id @default(autoincrement())
+  name      String  @db.VarChar(150)
+  phone     String? @db.VarChar(15)
+  email     String? @db.VarChar(150)
+  address   String? @db.VarChar(255)
+  is_active Boolean @default(true)
 
   created_at DateTime @default(now()) @db.Timestamptz()
   updated_at DateTime @updatedAt @db.Timestamptz()
@@ -88,6 +88,10 @@ model Restaurant {
   orders   Order[]
   kots     Kot[]
   payments Payment[]
+
+  categories Category[]
+  items      Item[]
+  addons     Addon[]
 
   @@index([is_active])
   @@map("restaurants")
@@ -146,20 +150,20 @@ model RefreshToken {
 // =====================================================
 
 model OtpVerification {
-  id         Int        @id @default(autoincrement())
-  user_id    Int?
-  contact    String     @db.VarChar(150)
-  otp_hash   String     @db.Char(64)
-  purpose    OtpPurpose
-  attempts   Int        @default(0) @db.SmallInt
-  is_used    Boolean    @default(false)
-  expires_at DateTime   @db.Timestamptz()
-  created_at DateTime   @default(now()) @db.Timestamptz()
-  temp_name        String?
-  temp_password    String?
-  temp_restaurant  String?
-  temp_role        String?
-  user User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id              Int        @id @default(autoincrement())
+  user_id         Int?
+  contact         String     @db.VarChar(150)
+  otp_hash        String     @db.Char(64)
+  purpose         OtpPurpose
+  attempts        Int        @default(0) @db.SmallInt
+  is_used         Boolean    @default(false)
+  expires_at      DateTime   @db.Timestamptz()
+  created_at      DateTime   @default(now()) @db.Timestamptz()
+  temp_name       String?
+  temp_password   String?
+  temp_restaurant String?
+  temp_role       String?
+  user            User?      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([contact, purpose])
   @@index([expires_at])
@@ -247,7 +251,7 @@ model OrderItem {
 
   // Denormalized from EXE — preserves price at time of order
   item_name       String  @db.VarChar(150)
-  item_code       String? @db.VarChar(50)  // EXE menu reference
+  item_code       String? @db.VarChar(50) // EXE menu reference
   category        String? @db.VarChar(100)
   quantity        Decimal @db.Decimal(8, 3) // supports fractional (e.g. 0.5 kg)
   unit_price      Decimal @db.Decimal(10, 2)
@@ -339,4 +343,90 @@ model Payment {
   @@index([restaurant_id, status])
   @@index([restaurant_id, paid_at])
   @@map("payments")
+}
+
+// =====================================================
+// MENU SYSTEM (Restaurant-based)
+// =====================================================
+
+model Category {
+  id            Int     @id @default(autoincrement())
+  restaurant_id Int
+  name          String  @db.VarChar(100)
+  display_order Int     @default(0)
+  is_active     Boolean @default(true)
+
+  created_at DateTime @default(now()) @db.Timestamptz()
+  updated_at DateTime @updatedAt @db.Timestamptz()
+
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
+  items      Item[]
+
+  @@index([restaurant_id])
+  @@map("categories")
+}
+
+model Item {
+  id            Int @id @default(autoincrement())
+  restaurant_id Int
+  category_id   Int
+
+  name        String  @db.VarChar(150)
+  code        String? @db.VarChar(50) // for POS mapping
+  description String? @db.VarChar(255)
+
+  price        Decimal @db.Decimal(10, 2)
+  is_veg       Boolean @default(true)
+  is_available Boolean @default(true)
+
+  created_at DateTime @default(now()) @db.Timestamptz()
+  updated_at DateTime @updatedAt @db.Timestamptz()
+
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
+  category   Category   @relation(fields: [category_id], references: [id])
+
+  variants Variant[]
+  addons   ItemAddon[]
+
+  @@index([restaurant_id])
+  @@index([category_id])
+  @@map("items")
+}
+
+model Variant {
+  id      Int @id @default(autoincrement())
+  item_id Int
+
+  name  String  @db.VarChar(100)
+  price Decimal @db.Decimal(10, 2)
+
+  item Item @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  @@index([item_id])
+  @@map("variants")
+}
+
+model Addon {
+  id            Int @id @default(autoincrement())
+  restaurant_id Int
+
+  name  String  @db.VarChar(100)
+  price Decimal @db.Decimal(10, 2)
+
+  restaurant Restaurant  @relation(fields: [restaurant_id], references: [id])
+  items      ItemAddon[]
+
+  @@index([restaurant_id])
+  @@map("addons")
+}
+
+model ItemAddon {
+  item_id  Int
+  addon_id Int
+
+  item  Item  @relation(fields: [item_id], references: [id], onDelete: Cascade)
+  addon Addon @relation(fields: [addon_id], references: [id], onDelete: Cascade)
+
+  @@id([item_id, addon_id])
+  @@map("item_addons")
 }
