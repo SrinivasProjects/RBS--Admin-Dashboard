@@ -362,6 +362,7 @@ model Category {
   restaurant Restaurant @relation(fields: [restaurant_id], references: [id])
   items      Item[]
 
+  @@unique([restaurant_id, name])
   @@index([restaurant_id])
   @@map("categories")
 }

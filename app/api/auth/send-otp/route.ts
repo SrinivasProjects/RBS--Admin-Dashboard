@@ -2,57 +2,55 @@ import { prisma } from "@/lib/prisma"
 import crypto from "crypto"
 import { sendEmail } from "@/lib/sendEmail"
 import { NextResponse } from "next/server"
+import { OtpPurpose } from "@prisma/client"
 
 export async function POST(req: Request) {
   try {
-const { contact, purpose } = await req.json()
+    const body = await req.json()
+    const { contact, purpose } = body
 
+    // Input validation
+    if (!contact || typeof contact !== "string") {
+      return NextResponse.json({ error: "Contact is required" }, { status: 400 })
+    }
+    if (!purpose || !Object.values(OtpPurpose).includes(purpose as OtpPurpose)) {
+      return NextResponse.json({ error: "Invalid purpose" }, { status: 400 })
+    }
 
+    // Rate limit — one OTP per contact per 60 seconds
     const lastOtp = await prisma.otpVerification.findFirst({
-  where: { contact },
-  orderBy: { created_at: "desc" }
-})
-// If last OTP was created less than 60 sec ago thn block
-if (lastOtp && Date.now() - new Date(lastOtp.created_at).getTime() < 60000) {
-  return NextResponse.json(
-    { error: "Wait before requesting another OTP" },
-    { status: 429 }
-  )
-}
-    
+      where: { contact },
+      orderBy: { created_at: "desc" },
+    })
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString()
+    if (lastOtp && Date.now() - new Date(lastOtp.created_at).getTime() < 60_000) {
+      return NextResponse.json(
+        { error: "Please wait before requesting another OTP" },
+        { status: 429 }
+      )
+    }
 
-    const otpHash = crypto
-      .createHash("sha256")
-      .update(otp)
-      .digest("hex")
+    // Cryptographically secure 6-digit OTP
+    const otp = crypto.randomInt(100_000, 999_999).toString()
 
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 min
+    const otpHash = crypto.createHash("sha256").update(otp).digest("hex")
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
-    // Save in DB
     await prisma.otpVerification.create({
       data: {
         contact,
-        purpose,
+        purpose: purpose as OtpPurpose,
         otp_hash: otpHash,
         expires_at: expiresAt,
-        attempts: 0
-      }
+        attempts: 0,
+      },
     })
 
-    //  SEND EMAIL HERE
     await sendEmail(contact, otp)
-console.log("ENV CHECK:", process.env.DATABASE_URL)
-    return NextResponse.json({ success: true })
-    
 
+    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json(
-      { error: "Failed to send OTP" },
-      { status: 500 }
-    )
+    console.error("[send-otp]", error)
+    return NextResponse.json({ error: "Failed to send OTP" }, { status: 500 })
   }
 }
